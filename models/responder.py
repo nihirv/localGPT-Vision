@@ -23,6 +23,63 @@ def encode_image(image_path):
   with open(image_path, "rb") as image_file:
     return base64.b64encode(image_file.read()).decode('utf-8')
 
+def resize_image(image_path: str, max_size: int) -> str:
+    """
+    Resize image to have a maximum dimension of max_size while maintaining aspect ratio
+    and save it with '_resized' suffix
+    
+    Args:
+        image_path (str): Path to the image file
+        max_size (int): Maximum dimension (width or height)
+        
+    Returns:
+        str: Path to the resized image file, or None if there's an error
+    """
+    try:
+        with Image.open(image_path) as img:
+            # Convert to RGB if needed
+            if img.mode in ('RGBA', 'P'):
+                img = img.convert('RGB')
+                
+            # Get original dimensions
+            width, height = img.size
+            
+            # Calculate the scaling factor
+            scale = max_size / max(width, height)
+            
+            # Generate the output filename
+            base_path, ext = os.path.splitext(image_path)
+            output_path = f"{base_path}_resized.png"  # Always save as PNG
+            
+            # Only resize if image is larger than max_size
+            if scale < 1:
+                new_width = int(width * scale)
+                new_height = int(height * scale)
+                resized_img = img.resize((new_width, new_height), Image.Resampling.LANCZOS)
+                
+                # Save as PNG with maximum quality
+                resized_img.save(
+                    output_path,
+                    'PNG',
+                    optimize=True,
+                    icc_profile=img.info.get('icc_profile'),  # Preserve color profile
+                    exif=img.info.get('exif')  # Preserve EXIF data if present
+                )
+            else:
+                # Save original as PNG if no resize needed
+                img.save(
+                    output_path,
+                    'PNG',
+                    optimize=True,
+                    icc_profile=img.info.get('icc_profile'),
+                    exif=img.info.get('exif')
+                )
+            
+            return output_path
+    except Exception as e:
+        logger.error(f"Error resizing image {image_path}: {e}")
+        return None
+
 def generate_response(images, query, session_id, resized_height=280, resized_width=280, model_choice='qwen'):
     """
     Generates a response using the selected model based on the query and images.
@@ -45,6 +102,10 @@ def generate_response(images, query, session_id, resized_height=280, resized_wid
             logger.warning("No valid images found for analysis.")
             return "No images could be loaded for analysis.", []
 
+        # Resize images and get paths to resized images
+        # resized_image_paths = [resize_image(img, max(resized_height, resized_width)) for img in valid_images]
+        # valid_images = [path for path in resized_image_paths if path is not None]
+        
         # If model only supports single image, use only the first image
         if is_single_image_model(model_choice):
             valid_images = [valid_images[0]]
@@ -155,7 +216,7 @@ def generate_response(images, query, session_id, resized_height=280, resized_wid
                             "content": content
                         }
                     ],
-                    max_tokens=1024
+                    temperature=0
                 )
                 
                 generated_text = response.choices[0].message.content

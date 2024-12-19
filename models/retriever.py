@@ -1,16 +1,14 @@
-# models/retriever.py
-
 import base64
 import os
 from PIL import Image
 from io import BytesIO
 from logger import get_logger
-import time
 import hashlib
+from typing import List
 
 logger = get_logger(__name__)
 
-def retrieve_documents(RAG, query, session_id, k=3):
+def retrieve_documents(RAG, query: str, session_id: str, k: int = 20) -> List[str]:
     """
     Retrieves relevant documents based on the user query using Byaldi.
 
@@ -21,40 +19,61 @@ def retrieve_documents(RAG, query, session_id, k=3):
         k (int): The number of documents to retrieve.
 
     Returns:
-        list: A list of image filenames corresponding to the retrieved documents.
+        List[str]: A list of image filenames corresponding to the retrieved documents.
     """
     try:
         logger.info(f"Retrieving documents for query: {query}")
+        # Ensure k is an integer
+        k = int(k)
         results = RAG.search(query, k=k)
         images = []
-        session_images_folder = os.path.join('static', 'images', session_id)
-        os.makedirs(session_images_folder, exist_ok=True)
+        
+        # Log the results structure for debugging
+        logger.debug(f"Search results type: {type(results)}")
+        if results:
+            logger.debug(f"First result type: {type(results[0])}")
+            logger.debug(f"First result attributes: {dir(results[0])}")
         
         for i, result in enumerate(results):
-            if result.base64:
-                image_data = base64.b64decode(result.base64)
-                image = Image.open(BytesIO(image_data))
-                
-                # Generate a unique filename based on the image content
-                image_hash = hashlib.md5(image_data).hexdigest()
-                image_filename = f"retrieved_{image_hash}.png"
-                image_path = os.path.join(session_images_folder, image_filename)
-                
-                if not os.path.exists(image_path):
-                    image.save(image_path, format='PNG')
-                    logger.debug(f"Retrieved and saved image: {image_path}")
+            try:
+                # Check if result has base64 attribute and it's not None/empty
+                if hasattr(result, 'base64') and result.base64:
+                    image_data = base64.b64decode(result.base64)
+                    image = Image.open(BytesIO(image_data))
+                    logger.info(f"Image dimensions: {image.size}")  # width x height
+                    
+                    # Generate filename based on content
+                    image_hash = hashlib.md5(image_data).hexdigest()
+                    
+                    # Save the retrieved image
+                    session_images_folder = os.path.join('static', 'images', session_id)
+                    os.makedirs(session_images_folder, exist_ok=True)
+                    
+                    image_filename = f"retrieved_{image_hash}.jpg"
+                    image_path = os.path.join(session_images_folder, image_filename)
+                    
+                    if not os.path.exists(image_path):
+                        # Save with best possible quality
+                        image.save(
+                            image_path,
+                            "JPEG",
+                            quality=100,
+                            optimize=True,
+                            subsampling=0
+                        )
+                        logger.debug(f"Saved image: {image_path}")
+                    
+                    # Store the relative path from the static folder
+                    relative_path = os.path.join('images', session_id, image_filename)
+                    images.append(relative_path)
                 else:
-                    logger.debug(f"Image already exists: {image_path}")
-                
-                # Store the relative path from the static folder
-                relative_path = os.path.join('images', session_id, image_filename)
-                images.append(relative_path)
-                logger.info(f"Added image to list: {relative_path}")
-            else:
-                logger.warning(f"No base64 data for document {result.doc_id}, page {result.page_num}")
+                    logger.warning(f"Result {i} has no base64 data: {result}")
+            except Exception as e:
+                logger.error(f"Error processing image {i}: {str(e)}", exc_info=True)
+                continue
         
-        logger.info(f"Total {len(images)} documents retrieved. Image paths: {images}")
+        logger.info(f"Successfully retrieved {len(images)} images")
         return images
     except Exception as e:
-        logger.error(f"Error retrieving documents: {e}")
-        return []
+        logger.error(f"Error retrieving documents: {str(e)}", exc_info=True)
+        raise

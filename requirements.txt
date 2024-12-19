@@ -1,4 +1,9 @@
 Flask
+fastapi>=0.68.0
+uvicorn>=0.15.0
+python-multipart>=0.0.5
+jinja2>=2.11.3
+aiofiles>=0.7.0
 byaldi
 torch
 torchvision
